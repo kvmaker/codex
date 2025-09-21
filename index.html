@@ -160,7 +160,6 @@
       <h1>轻松听 · 音乐播放器</h1>
       <p class="subtitle">把喜欢的曲目放进 <code>news</code> 文件夹后，列表会自动更新</p>
 
-
       <section class="track-info">
         <div>
           <label for="trackSelect">选择曲目</label>
@@ -198,7 +197,7 @@
     <audio id="audio" preload="metadata"></audio>
 
     <script>
-      const SUPPORTED_EXTENSIONS = new Set([
+      const AUDIO_EXTENSIONS = new Set([
         ".aac",
         ".flac",
         ".m4a",
@@ -209,6 +208,7 @@
         ".webm",
       ]);
 
+      const POINTER_EXTENSIONS = new Set([".txt"]);
       const manualTracks =
         typeof window !== "undefined" && Array.isArray(window.playerTracks)
           ? window.playerTracks
@@ -227,6 +227,14 @@
       let tracks = [];
       let isScrubbing = false;
 
+      function isAudioExtension(extension) {
+        return AUDIO_EXTENSIONS.has(extension);
+      }
+
+      function isPointerExtension(extension) {
+        return POINTER_EXTENSIONS.has(extension);
+      }
+
       function getExtension(fileName) {
         const dotIndex = fileName.lastIndexOf(".");
         return dotIndex >= 0 ? fileName.slice(dotIndex).toLowerCase() : "";
@@ -236,6 +244,119 @@
         const withoutExtension = fileName.replace(/\.[^.]+$/, "");
         const readable = withoutExtension.replace(/[_-]+/g, " ").trim();
         return readable || withoutExtension || fileName;
+      }
+
+      function deriveTitleFromUrl(urlString) {
+        try {
+          const url = new URL(urlString, window.location.href);
+          const segments = url.pathname.split("/").filter(Boolean);
+          const lastSegment = segments.length ? segments[segments.length - 1] : "";
+          if (lastSegment) {
+            return makeTitleFromFileName(decodeURIComponent(lastSegment));
+          }
+          return url.host || urlString;
+        } catch (error) {
+          return urlString;
+        }
+      }
+
+      function createTrackFromPointerLine(line, baseUrl, fallbackTitle, index) {
+        const cleaned = line.trim();
+        if (!cleaned || cleaned.startsWith("#")) {
+          return null;
+        }
+
+        let urlText = cleaned;
+        let explicitTitle = "";
+
+        if (cleaned.includes("|")) {
+          const parts = cleaned
+            .split("|")
+            .map((part) => part.trim())
+            .filter(Boolean);
+          if (parts.length >= 2) {
+            urlText = parts.pop();
+            explicitTitle = parts.join(" | ");
+          }
+        }
+
+        let resolvedUrl;
+        try {
+          resolvedUrl = new URL(urlText, baseUrl).href;
+        } catch (error) {
+          return null;
+        }
+
+        const title =
+          explicitTitle ||
+          deriveTitleFromUrl(resolvedUrl) ||
+          `${fallbackTitle || "外部曲目"} ${index + 1}`;
+
+        return {
+          title,
+          src: resolvedUrl,
+        };
+      }
+
+      async function parsePointerFile(pointerSrc, fallbackTitle) {
+        try {
+          const response = await fetch(pointerSrc, { cache: "no-cache" });
+          if (!response.ok) {
+            return [];
+          }
+
+          const text = await response.text();
+          const lines = text.split(/\r?\n/);
+          const baseUrl = response.url;
+          const tracksFromPointer = [];
+
+          lines.forEach((line, index) => {
+            const track = createTrackFromPointerLine(line, baseUrl, fallbackTitle, index);
+            if (track) {
+              tracksFromPointer.push(track);
+            }
+          });
+
+          return tracksFromPointer;
+        } catch (error) {
+          console.warn("读取播放列表文件失败", pointerSrc, error);
+          return [];
+        }
+      }
+
+      async function expandEntries(entries) {
+        if (!Array.isArray(entries) || !entries.length) {
+          return [];
+        }
+
+        const expanded = [];
+        const seenSources = new Set();
+
+        const addTrack = (track) => {
+          if (!track || !track.src || seenSources.has(track.src)) {
+            return;
+          }
+          seenSources.add(track.src);
+          expanded.push({
+            title: track.title || deriveTitleFromUrl(track.src),
+            src: track.src,
+          });
+        };
+
+        for (const entry of entries) {
+          if (!entry || !entry.src) {
+            continue;
+          }
+
+          if (entry.type === "pointer") {
+            const pointerTracks = await parsePointerFile(entry.src, entry.title);
+            pointerTracks.forEach(addTrack);
+          } else {
+            addTrack(entry);
+          }
+        }
+
+        return expanded;
       }
 
       function showPlaceholderOption(message) {
@@ -276,7 +397,6 @@
 
         if (!tracks.length) {
           showPlaceholderOption("暂未检测到音频文件");
-
           setPlayerAvailability(false);
           return;
         }
@@ -390,7 +510,7 @@
             }
 
             const extension = getExtension(fileName);
-            if (!SUPPORTED_EXTENSIONS.has(extension)) {
+            if (!isAudioExtension(extension) && !isPointerExtension(extension)) {
               return;
             }
 
@@ -419,6 +539,7 @@
             discovered.push({
               title,
               src: relativeSrc,
+              type: isPointerExtension(extension) ? "pointer" : "audio",
             });
           });
 
@@ -463,7 +584,7 @@
             }
 
             const extension = getExtension(entry.name);
-            if (!SUPPORTED_EXTENSIONS.has(extension)) {
+            if (!isAudioExtension(extension) && !isPointerExtension(extension)) {
               return;
             }
 
@@ -473,6 +594,7 @@
             discovered.push({
               title: makeTitleFromFileName(entry.name),
               src,
+              type: isPointerExtension(extension) ? "pointer" : "audio",
             });
           });
 
@@ -488,12 +610,14 @@
           return manualTracks;
         }
 
-        const localTracks = await fetchFromLocalListing();
+        const localEntries = await fetchFromLocalListing();
+        const localTracks = await expandEntries(localEntries);
         if (localTracks.length) {
           return localTracks;
         }
 
-        const githubTracks = await fetchFromGithubContents();
+        const githubEntries = await fetchFromGithubContents();
+        const githubTracks = await expandEntries(githubEntries);
         if (githubTracks.length) {
           return githubTracks;
         }
