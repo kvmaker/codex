@@ -160,6 +160,7 @@
       <h1>轻松听 · 音乐播放器</h1>
       <p class="subtitle">把喜欢的曲目放进 <code>news</code> 文件夹后，列表会自动更新</p>
 
+
       <section class="track-info">
         <div>
           <label for="trackSelect">选择曲目</label>
@@ -245,7 +246,6 @@
         option.selected = true;
         trackSelect.appendChild(option);
       }
-
       function resetProgress() {
         progressBar.style.width = "0%";
         progressWrapper.setAttribute("aria-valuenow", "0");
@@ -276,6 +276,7 @@
 
         if (!tracks.length) {
           showPlaceholderOption("暂未检测到音频文件");
+
           setPlayerAvailability(false);
           return;
         }
