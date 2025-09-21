@@ -209,7 +209,6 @@
       ]);
 
       const POINTER_EXTENSIONS = new Set([".txt"]);
-
       const manualTracks =
         typeof window !== "undefined" && Array.isArray(window.playerTracks)
           ? window.playerTracks
@@ -368,7 +367,6 @@
         option.selected = true;
         trackSelect.appendChild(option);
       }
-
       function resetProgress() {
         progressBar.style.width = "0%";
         progressWrapper.setAttribute("aria-valuenow", "0");
