@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>口袋音乐播放器</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: linear-gradient(160deg, #c7d2fe 0%, #fce7f3 50%, #f5f5f5 100%);
+      }
+
+      main.player {
+        width: min(420px, 100%);
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(6px);
+        border-radius: 24px;
+        padding: 24px 20px 28px;
+        box-shadow: 0 14px 38px rgba(79, 70, 229, 0.18);
+      }
+
+      h1 {
+        margin: 0 0 4px;
+        font-size: clamp(1.4rem, 2.4vw + 1rem, 1.9rem);
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-align: center;
+      }
+
+      p.subtitle {
+        margin: 0 0 16px;
+        color: rgba(55, 65, 81, 0.75);
+        font-size: 0.95rem;
+        text-align: center;
+      }
+
+      .track-info {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      label {
+        font-size: 0.9rem;
+        color: rgba(31, 41, 55, 0.85);
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      select {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        padding: 12px 14px;
+        font-size: 1rem;
+        background-color: rgba(255, 255, 255, 0.95);
+        appearance: none;
+        outline: none;
+      }
+
+      .progress-wrapper {
+        position: relative;
+        height: 8px;
+        background: rgba(129, 140, 248, 0.2);
+        border-radius: 999px;
+        overflow: hidden;
+        cursor: pointer;
+        touch-action: none;
+      }
+
+      .progress-bar {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, #6366f1, #ec4899);
+        border-radius: inherit;
+        transition: width 0.1s linear;
+      }
+
+      .time {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 8px;
+        font-size: 0.85rem;
+        color: rgba(55, 65, 81, 0.8);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 24px;
+      }
+
+      button.play-toggle {
+        border: none;
+        border-radius: 999px;
+        padding: 14px 36px;
+        font-size: 1.05rem;
+        font-weight: 600;
+        background: linear-gradient(120deg, #4f46e5, #ec4899);
+        color: #fff;
+        box-shadow: 0 12px 22px rgba(79, 70, 229, 0.25);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      button.play-toggle:active {
+        transform: scale(0.97);
+        box-shadow: 0 8px 18px rgba(79, 70, 229, 0.2);
+      }
+
+      button.play-toggle span.icon {
+        font-size: 1.2em;
+      }
+
+      button.play-toggle:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        box-shadow: none;
+      }
+
+      .progress-wrapper[aria-disabled="true"] {
+        opacity: 0.4;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+
+      @media (max-width: 480px) {
+        body {
+          padding: 12px;
+        }
+
+        main.player {
+          padding: 22px 18px 26px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="player" role="region" aria-label="音乐播放器">
+      <h1>轻松听 · 音乐播放器</h1>
+      <p class="subtitle">把喜欢的曲目放进 <code>news</code> 文件夹后，列表会自动更新</p>
+
+      <section class="track-info">
+        <div>
+          <label for="trackSelect">选择曲目</label>
+          <select id="trackSelect" aria-label="选择曲目"></select>
+        </div>
+
+        <div class="progress" aria-label="播放进度">
+          <div
+            class="progress-wrapper"
+            id="progressWrapper"
+            role="slider"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+            aria-disabled="false"
+            tabindex="0"
+          >
+            <div class="progress-bar" id="progressBar"></div>
+          </div>
+          <div class="time">
+            <span id="currentTime">0:00</span>
+            <span id="duration">0:00</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="controls">
+        <button class="play-toggle" id="toggleButton" type="button" aria-pressed="false">
+          <span class="icon" aria-hidden="true">▶</span>
+          <span class="label">开始播放</span>
+        </button>
+      </div>
+    </main>
+
+    <audio id="audio" preload="metadata"></audio>
+
+    <script>
+      const AUDIO_EXTENSIONS = new Set([
+        ".aac",
+        ".flac",
+        ".m4a",
+        ".mp3",
+        ".ogg",
+        ".opus",
+        ".wav",
+        ".webm",
+      ]);
+
+      const POINTER_EXTENSIONS = new Set([".txt"]);
+
+      const manualTracks =
+        typeof window !== "undefined" && Array.isArray(window.playerTracks)
+          ? window.playerTracks
+          : null;
+
+      const audio = document.getElementById("audio");
+      const playButton = document.getElementById("toggleButton");
+      const playLabel = playButton.querySelector(".label");
+      const playIcon = playButton.querySelector(".icon");
+      const progressWrapper = document.getElementById("progressWrapper");
+      const progressBar = document.getElementById("progressBar");
+      const currentTimeEl = document.getElementById("currentTime");
+      const durationEl = document.getElementById("duration");
+      const trackSelect = document.getElementById("trackSelect");
+
+      let tracks = [];
+      let isScrubbing = false;
+
+      function isAudioExtension(extension) {
+        return AUDIO_EXTENSIONS.has(extension);
+      }
+
+      function isPointerExtension(extension) {
+        return POINTER_EXTENSIONS.has(extension);
+      }
+
+      function getExtension(fileName) {
+        const dotIndex = fileName.lastIndexOf(".");
+        return dotIndex >= 0 ? fileName.slice(dotIndex).toLowerCase() : "";
+      }
+
+      function makeTitleFromFileName(fileName) {
+        const withoutExtension = fileName.replace(/\.[^.]+$/, "");
+        const readable = withoutExtension.replace(/[_-]+/g, " ").trim();
+        return readable || withoutExtension || fileName;
+      }
+
+      function deriveTitleFromUrl(urlString) {
+        try {
+          const url = new URL(urlString, window.location.href);
+          const segments = url.pathname.split("/").filter(Boolean);
+          const lastSegment = segments.length ? segments[segments.length - 1] : "";
+          if (lastSegment) {
+            return makeTitleFromFileName(decodeURIComponent(lastSegment));
+          }
+          return url.host || urlString;
+        } catch (error) {
+          return urlString;
+        }
+      }
+
+      function createTrackFromPointerLine(line, baseUrl, fallbackTitle, index) {
+        const cleaned = line.trim();
+        if (!cleaned || cleaned.startsWith("#")) {
+          return null;
+        }
+
+        let urlText = cleaned;
+        let explicitTitle = "";
+
+        if (cleaned.includes("|")) {
+          const parts = cleaned
+            .split("|")
+            .map((part) => part.trim())
+            .filter(Boolean);
+          if (parts.length >= 2) {
+            urlText = parts.pop();
+            explicitTitle = parts.join(" | ");
+          }
+        }
+
+        let resolvedUrl;
+        try {
+          resolvedUrl = new URL(urlText, baseUrl).href;
+        } catch (error) {
+          return null;
+        }
+
+        const title =
+          explicitTitle ||
+          deriveTitleFromUrl(resolvedUrl) ||
+          `${fallbackTitle || "外部曲目"} ${index + 1}`;
+
+        return {
+          title,
+          src: resolvedUrl,
+        };
+      }
+
+      async function parsePointerFile(pointerSrc, fallbackTitle) {
+        try {
+          const response = await fetch(pointerSrc, { cache: "no-cache" });
+          if (!response.ok) {
+            return [];
+          }
+
+          const text = await response.text();
+          const lines = text.split(/\r?\n/);
+          const baseUrl = response.url;
+          const tracksFromPointer = [];
+
+          lines.forEach((line, index) => {
+            const track = createTrackFromPointerLine(line, baseUrl, fallbackTitle, index);
+            if (track) {
+              tracksFromPointer.push(track);
+            }
+          });
+
+          return tracksFromPointer;
+        } catch (error) {
+          console.warn("读取播放列表文件失败", pointerSrc, error);
+          return [];
+        }
+      }
+
+      async function expandEntries(entries) {
+        if (!Array.isArray(entries) || !entries.length) {
+          return [];
+        }
+
+        const expanded = [];
+        const seenSources = new Set();
+
+        const addTrack = (track) => {
+          if (!track || !track.src || seenSources.has(track.src)) {
+            return;
+          }
+          seenSources.add(track.src);
+          expanded.push({
+            title: track.title || deriveTitleFromUrl(track.src),
+            src: track.src,
+          });
+        };
+
+        for (const entry of entries) {
+          if (!entry || !entry.src) {
+            continue;
+          }
+
+          if (entry.type === "pointer") {
+            const pointerTracks = await parsePointerFile(entry.src, entry.title);
+            pointerTracks.forEach(addTrack);
+          } else {
+            addTrack(entry);
+          }
+        }
+
+        return expanded;
+      }
+
+      function showPlaceholderOption(message) {
+        trackSelect.innerHTML = "";
+        const option = document.createElement("option");
+        option.textContent = message;
+        option.disabled = true;
+        option.selected = true;
+        trackSelect.appendChild(option);
+      }
+
+      function resetProgress() {
+        progressBar.style.width = "0%";
+        progressWrapper.setAttribute("aria-valuenow", "0");
+        currentTimeEl.textContent = "0:00";
+        durationEl.textContent = "0:00";
+      }
+
+      function setPlayerAvailability(isEnabled) {
+        playButton.disabled = !isEnabled;
+        trackSelect.disabled = !isEnabled;
+        progressWrapper.setAttribute("aria-disabled", String(!isEnabled));
+        progressWrapper.tabIndex = isEnabled ? 0 : -1;
+
+        if (!isEnabled) {
+          isScrubbing = false;
+          if (!audio.paused) {
+            audio.pause();
+          }
+          audio.removeAttribute("src");
+          audio.load();
+          resetProgress();
+          setButtonState(false);
+        }
+      }
+
+      function populateTrackOptions() {
+        trackSelect.innerHTML = "";
+
+        if (!tracks.length) {
+          showPlaceholderOption("暂未检测到音频文件");
+          setPlayerAvailability(false);
+          return;
+        }
+
+        tracks.forEach((track, index) => {
+          const option = document.createElement("option");
+          option.value = track.src;
+          option.textContent = track.title;
+          if (index === 0) {
+            option.selected = true;
+          }
+          trackSelect.appendChild(option);
+        });
+
+        setPlayerAvailability(true);
+      }
+
+      function formatTime(value) {
+        if (Number.isNaN(value)) {
+          return "0:00";
+        }
+        const totalSeconds = Math.floor(value);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+      }
+
+      function updateProgress() {
+        const { currentTime, duration } = audio;
+        const percent = duration ? Math.min((currentTime / duration) * 100, 100) : 0;
+        progressBar.style.width = `${percent}%`;
+        progressWrapper.setAttribute("aria-valuenow", percent.toFixed(1));
+        currentTimeEl.textContent = formatTime(currentTime);
+        durationEl.textContent = formatTime(duration);
+      }
+
+      function setButtonState(isPlaying) {
+        playButton.setAttribute("aria-pressed", isPlaying);
+        if (isPlaying) {
+          playIcon.textContent = "⏸";
+          playLabel.textContent = "暂停";
+        } else {
+          playIcon.textContent = "▶";
+          playLabel.textContent = "开始播放";
+        }
+      }
+
+      function loadTrack(source) {
+        if (!source) {
+          return;
+        }
+        const wasPlaying = !audio.paused && !audio.ended;
+        audio.src = source;
+        audio.load();
+        resetProgress();
+        if (wasPlaying) {
+          audio
+            .play()
+            .then(() => setButtonState(true))
+            .catch(() => {
+              setButtonState(false);
+            });
+        } else {
+          setButtonState(false);
+        }
+      }
+
+      async function fetchFromLocalListing() {
+        try {
+          const response = await fetch("news/", { cache: "no-cache" });
+          if (!response.ok) {
+            return [];
+          }
+          const contentType = response.headers.get("content-type") || "";
+          if (!contentType.includes("html")) {
+            return [];
+          }
+
+          const text = await response.text();
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(text, "text/html");
+          const anchors = Array.from(doc.querySelectorAll("a[href]"));
+          const seen = new Set();
+          const discovered = [];
+
+          anchors.forEach((anchor) => {
+            const rawHref = anchor.getAttribute("href") || "";
+            if (!rawHref || rawHref.endsWith("/")) {
+              return;
+            }
+            if (rawHref.startsWith("?") || rawHref.startsWith("#")) {
+              return;
+            }
+
+            let resolved;
+            try {
+              resolved = new URL(rawHref, response.url);
+            } catch (error) {
+              return;
+            }
+
+            if (resolved.pathname.endsWith("/")) {
+              return;
+            }
+
+            const fileName = decodeURIComponent(
+              resolved.pathname.substring(resolved.pathname.lastIndexOf("/") + 1)
+            );
+            if (!fileName) {
+              return;
+            }
+
+            const extension = getExtension(fileName);
+            if (!isAudioExtension(extension) && !isPointerExtension(extension)) {
+              return;
+            }
+
+            const newsIndex = resolved.pathname.lastIndexOf("/news/");
+            let relativeSrc;
+            if (newsIndex !== -1) {
+              relativeSrc = resolved.pathname.substring(newsIndex + 1);
+            } else {
+              const encodedName = encodeURIComponent(fileName);
+              relativeSrc = `news/${encodedName}`;
+            }
+            if (resolved.search) {
+              relativeSrc += resolved.search;
+            }
+
+            if (seen.has(relativeSrc)) {
+              return;
+            }
+            seen.add(relativeSrc);
+
+            const anchorText = anchor.textContent ? anchor.textContent.trim() : "";
+            const title = anchorText && !anchorText.startsWith("../")
+              ? anchorText
+              : makeTitleFromFileName(fileName);
+
+            discovered.push({
+              title,
+              src: relativeSrc,
+              type: isPointerExtension(extension) ? "pointer" : "audio",
+            });
+          });
+
+          return discovered;
+        } catch (error) {
+          console.warn("扫描 news 目录时遇到问题", error);
+          return [];
+        }
+      }
+
+      async function fetchFromGithubContents() {
+        const { hostname, pathname } = window.location;
+        if (!hostname.endsWith("github.io")) {
+          return [];
+        }
+
+        const owner = hostname.replace(/\.github\.io$/, "");
+        const segments = pathname.split("/").filter(Boolean);
+        const repo = segments[0] || `${owner}.github.io`;
+        const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/news`;
+
+        try {
+          const response = await fetch(apiUrl, {
+            headers: {
+              Accept: "application/vnd.github.v3+json",
+            },
+          });
+
+          if (!response.ok) {
+            return [];
+          }
+
+          const payload = await response.json();
+          if (!Array.isArray(payload)) {
+            return [];
+          }
+
+          const discovered = [];
+          payload.forEach((entry) => {
+            if (!entry || entry.type !== "file" || typeof entry.name !== "string") {
+              return;
+            }
+
+            const extension = getExtension(entry.name);
+            if (!isAudioExtension(extension) && !isPointerExtension(extension)) {
+              return;
+            }
+
+            const encodedName = encodeURIComponent(entry.name);
+            const src = `news/${encodedName}`;
+
+            discovered.push({
+              title: makeTitleFromFileName(entry.name),
+              src,
+              type: isPointerExtension(extension) ? "pointer" : "audio",
+            });
+          });
+
+          return discovered;
+        } catch (error) {
+          console.warn("尝试通过 GitHub API 获取音频列表失败", error);
+          return [];
+        }
+      }
+
+      async function discoverTracks() {
+        if (manualTracks && manualTracks.length) {
+          return manualTracks;
+        }
+
+        const localEntries = await fetchFromLocalListing();
+        const localTracks = await expandEntries(localEntries);
+        if (localTracks.length) {
+          return localTracks;
+        }
+
+        const githubEntries = await fetchFromGithubContents();
+        const githubTracks = await expandEntries(githubEntries);
+        if (githubTracks.length) {
+          return githubTracks;
+        }
+
+        return [];
+      }
+
+      playButton.addEventListener("click", () => {
+        if (audio.paused) {
+          audio
+            .play()
+            .then(() => setButtonState(true))
+            .catch(() => {
+              setButtonState(false);
+            });
+        } else {
+          audio.pause();
+          setButtonState(false);
+        }
+      });
+
+      trackSelect.addEventListener("change", (event) => {
+        const { value } = event.target;
+        if (value) {
+          loadTrack(value);
+        }
+      });
+
+      audio.addEventListener("timeupdate", updateProgress);
+      audio.addEventListener("loadedmetadata", updateProgress);
+      audio.addEventListener("play", () => setButtonState(true));
+      audio.addEventListener("pause", () => setButtonState(false));
+      audio.addEventListener("ended", () => {
+        setButtonState(false);
+        updateProgress();
+      });
+
+      function seekByClient(clientX) {
+        const rect = progressWrapper.getBoundingClientRect();
+        const offsetX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+        const ratio = rect.width ? offsetX / rect.width : 0;
+        audio.currentTime = ratio * (audio.duration || 0);
+        updateProgress();
+      }
+
+      progressWrapper.addEventListener("mousedown", (event) => {
+        if (progressWrapper.getAttribute("aria-disabled") === "true") {
+          return;
+        }
+        isScrubbing = true;
+        seekByClient(event.clientX);
+      });
+
+      document.addEventListener("mousemove", (event) => {
+        if (isScrubbing) {
+          seekByClient(event.clientX);
+        }
+      });
+
+      document.addEventListener("mouseup", () => {
+        if (isScrubbing) {
+          isScrubbing = false;
+        }
+      });
+
+      progressWrapper.addEventListener("touchstart", (event) => {
+        if (progressWrapper.getAttribute("aria-disabled") === "true") {
+          return;
+        }
+        isScrubbing = true;
+        if (event.touches && event.touches[0]) {
+          seekByClient(event.touches[0].clientX);
+        }
+        event.preventDefault();
+      });
+
+      progressWrapper.addEventListener("touchmove", (event) => {
+        if (isScrubbing && event.touches && event.touches[0]) {
+          seekByClient(event.touches[0].clientX);
+        }
+        event.preventDefault();
+      });
+
+      document.addEventListener("touchend", () => {
+        isScrubbing = false;
+      });
+
+      progressWrapper.addEventListener("keydown", (event) => {
+        if (progressWrapper.getAttribute("aria-disabled") === "true") {
+          return;
+        }
+        if (!audio.duration) {
+          return;
+        }
+        const step = Math.max(1, audio.duration / 30);
+        if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+          audio.currentTime = Math.min(audio.duration, audio.currentTime + step);
+          updateProgress();
+          event.preventDefault();
+        } else if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+          audio.currentTime = Math.max(0, audio.currentTime - step);
+          updateProgress();
+          event.preventDefault();
+        }
+      });
+
+      async function initPlayer() {
+        showPlaceholderOption("正在扫描 news 目录…");
+        setPlayerAvailability(false);
+
+        tracks = await discoverTracks();
+        populateTrackOptions();
+
+        if (tracks.length > 0) {
+          loadTrack(tracks[0].src);
+        }
+      }
+
+      initPlayer();
+    </script>
+  </body>
+</html>
