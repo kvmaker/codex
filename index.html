@@ -158,7 +158,8 @@
   <body>
     <main class="player" role="region" aria-label="音乐播放器">
       <h1>轻松听 · 音乐播放器</h1>
-      <p class="subtitle">把喜欢的曲目放进 <code>news</code> 文件夹后，在下方列表中登记即可播放</p>
+      <p class="subtitle">把喜欢的曲目放进 <code>news</code> 文件夹后，列表会自动更新</p>
+
 
       <section class="track-info">
         <div>
@@ -197,15 +198,21 @@
     <audio id="audio" preload="metadata"></audio>
 
     <script>
-      const predefinedTracks =
+      const SUPPORTED_EXTENSIONS = new Set([
+        ".aac",
+        ".flac",
+        ".m4a",
+        ".mp3",
+        ".ogg",
+        ".opus",
+        ".wav",
+        ".webm",
+      ]);
+
+      const manualTracks =
         typeof window !== "undefined" && Array.isArray(window.playerTracks)
           ? window.playerTracks
-          : [];
-      const tracks = predefinedTracks.length
-        ? predefinedTracks
-        : [
-            // 例如：{ title: "背景音乐", src: "news/your-audio.mp3" }
-          ];
+          : null;
 
       const audio = document.getElementById("audio");
       const playButton = document.getElementById("toggleButton");
@@ -217,8 +224,28 @@
       const durationEl = document.getElementById("duration");
       const trackSelect = document.getElementById("trackSelect");
 
+      let tracks = [];
       let isScrubbing = false;
 
+      function getExtension(fileName) {
+        const dotIndex = fileName.lastIndexOf(".");
+        return dotIndex >= 0 ? fileName.slice(dotIndex).toLowerCase() : "";
+      }
+
+      function makeTitleFromFileName(fileName) {
+        const withoutExtension = fileName.replace(/\.[^.]+$/, "");
+        const readable = withoutExtension.replace(/[_-]+/g, " ").trim();
+        return readable || withoutExtension || fileName;
+      }
+
+      function showPlaceholderOption(message) {
+        trackSelect.innerHTML = "";
+        const option = document.createElement("option");
+        option.textContent = message;
+        option.disabled = true;
+        option.selected = true;
+        trackSelect.appendChild(option);
+      }
       function resetProgress() {
         progressBar.style.width = "0%";
         progressWrapper.setAttribute("aria-valuenow", "0");
@@ -248,11 +275,8 @@
         trackSelect.innerHTML = "";
 
         if (!tracks.length) {
-          const option = document.createElement("option");
-          option.textContent = "暂无可播放曲目";
-          option.disabled = true;
-          option.selected = true;
-          trackSelect.appendChild(option);
+          showPlaceholderOption("暂未检测到音频文件");
+
           setPlayerAvailability(false);
           return;
         }
@@ -318,6 +342,163 @@
         } else {
           setButtonState(false);
         }
+      }
+
+      async function fetchFromLocalListing() {
+        try {
+          const response = await fetch("news/", { cache: "no-cache" });
+          if (!response.ok) {
+            return [];
+          }
+          const contentType = response.headers.get("content-type") || "";
+          if (!contentType.includes("html")) {
+            return [];
+          }
+
+          const text = await response.text();
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(text, "text/html");
+          const anchors = Array.from(doc.querySelectorAll("a[href]"));
+          const seen = new Set();
+          const discovered = [];
+
+          anchors.forEach((anchor) => {
+            const rawHref = anchor.getAttribute("href") || "";
+            if (!rawHref || rawHref.endsWith("/")) {
+              return;
+            }
+            if (rawHref.startsWith("?") || rawHref.startsWith("#")) {
+              return;
+            }
+
+            let resolved;
+            try {
+              resolved = new URL(rawHref, response.url);
+            } catch (error) {
+              return;
+            }
+
+            if (resolved.pathname.endsWith("/")) {
+              return;
+            }
+
+            const fileName = decodeURIComponent(
+              resolved.pathname.substring(resolved.pathname.lastIndexOf("/") + 1)
+            );
+            if (!fileName) {
+              return;
+            }
+
+            const extension = getExtension(fileName);
+            if (!SUPPORTED_EXTENSIONS.has(extension)) {
+              return;
+            }
+
+            const newsIndex = resolved.pathname.lastIndexOf("/news/");
+            let relativeSrc;
+            if (newsIndex !== -1) {
+              relativeSrc = resolved.pathname.substring(newsIndex + 1);
+            } else {
+              const encodedName = encodeURIComponent(fileName);
+              relativeSrc = `news/${encodedName}`;
+            }
+            if (resolved.search) {
+              relativeSrc += resolved.search;
+            }
+
+            if (seen.has(relativeSrc)) {
+              return;
+            }
+            seen.add(relativeSrc);
+
+            const anchorText = anchor.textContent ? anchor.textContent.trim() : "";
+            const title = anchorText && !anchorText.startsWith("../")
+              ? anchorText
+              : makeTitleFromFileName(fileName);
+
+            discovered.push({
+              title,
+              src: relativeSrc,
+            });
+          });
+
+          return discovered;
+        } catch (error) {
+          console.warn("扫描 news 目录时遇到问题", error);
+          return [];
+        }
+      }
+
+      async function fetchFromGithubContents() {
+        const { hostname, pathname } = window.location;
+        if (!hostname.endsWith("github.io")) {
+          return [];
+        }
+
+        const owner = hostname.replace(/\.github\.io$/, "");
+        const segments = pathname.split("/").filter(Boolean);
+        const repo = segments[0] || `${owner}.github.io`;
+        const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/news`;
+
+        try {
+          const response = await fetch(apiUrl, {
+            headers: {
+              Accept: "application/vnd.github.v3+json",
+            },
+          });
+
+          if (!response.ok) {
+            return [];
+          }
+
+          const payload = await response.json();
+          if (!Array.isArray(payload)) {
+            return [];
+          }
+
+          const discovered = [];
+          payload.forEach((entry) => {
+            if (!entry || entry.type !== "file" || typeof entry.name !== "string") {
+              return;
+            }
+
+            const extension = getExtension(entry.name);
+            if (!SUPPORTED_EXTENSIONS.has(extension)) {
+              return;
+            }
+
+            const encodedName = encodeURIComponent(entry.name);
+            const src = `news/${encodedName}`;
+
+            discovered.push({
+              title: makeTitleFromFileName(entry.name),
+              src,
+            });
+          });
+
+          return discovered;
+        } catch (error) {
+          console.warn("尝试通过 GitHub API 获取音频列表失败", error);
+          return [];
+        }
+      }
+
+      async function discoverTracks() {
+        if (manualTracks && manualTracks.length) {
+          return manualTracks;
+        }
+
+        const localTracks = await fetchFromLocalListing();
+        if (localTracks.length) {
+          return localTracks;
+        }
+
+        const githubTracks = await fetchFromGithubContents();
+        if (githubTracks.length) {
+          return githubTracks;
+        }
+
+        return [];
       }
 
       playButton.addEventListener("click", () => {
@@ -419,11 +600,19 @@
         }
       });
 
-      populateTrackOptions();
+      async function initPlayer() {
+        showPlaceholderOption("正在扫描 news 目录…");
+        setPlayerAvailability(false);
 
-      if (tracks.length > 0) {
-        loadTrack(tracks[0].src);
+        tracks = await discoverTracks();
+        populateTrackOptions();
+
+        if (tracks.length > 0) {
+          loadTrack(tracks[0].src);
+        }
       }
+
+      initPlayer();
     </script>
   </body>
 </html>
