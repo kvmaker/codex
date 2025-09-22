@@ -71,6 +71,16 @@
         background-color: rgba(255, 255, 255, 0.95);
         appearance: none;
         outline: none;
+        overflow-y: auto;
+      }
+
+      select[size] {
+        min-height: 180px;
+        padding: 8px;
+      }
+
+      select option {
+        padding: 6px 8px;
       }
 
       .progress-wrapper {
@@ -158,12 +168,12 @@
   <body>
     <main class="player" role="region" aria-label="音乐播放器">
       <h1>轻松听 · 音乐播放器</h1>
-      <p class="subtitle">把喜欢的曲目放进 <code>news</code> 文件夹后，列表会自动更新</p>
+      <p class="subtitle">把播放信息写在 <code>audio.txt</code> 中，页面会自动加载</p>
 
       <section class="track-info">
         <div>
           <label for="trackSelect">选择曲目</label>
-          <select id="trackSelect" aria-label="选择曲目"></select>
+          <select id="trackSelect" aria-label="选择曲目" size="5"></select>
         </div>
 
         <div class="progress" aria-label="播放进度">
@@ -197,23 +207,6 @@
     <audio id="audio" preload="metadata"></audio>
 
     <script>
-      const AUDIO_EXTENSIONS = new Set([
-        ".aac",
-        ".flac",
-        ".m4a",
-        ".mp3",
-        ".ogg",
-        ".opus",
-        ".wav",
-        ".webm",
-      ]);
-
-      const POINTER_EXTENSIONS = new Set([".txt"]);
-      const manualTracks =
-        typeof window !== "undefined" && Array.isArray(window.playerTracks)
-          ? window.playerTracks
-          : null;
-
       const audio = document.getElementById("audio");
       const playButton = document.getElementById("toggleButton");
       const playLabel = playButton.querySelector(".label");
@@ -226,158 +219,6 @@
 
       let tracks = [];
       let isScrubbing = false;
-
-      function isAudioExtension(extension) {
-        return AUDIO_EXTENSIONS.has(extension);
-      }
-
-      function isPointerExtension(extension) {
-        return POINTER_EXTENSIONS.has(extension);
-      }
-
-      function getExtension(fileName) {
-        const dotIndex = fileName.lastIndexOf(".");
-        return dotIndex >= 0 ? fileName.slice(dotIndex).toLowerCase() : "";
-      }
-
-      function makeTitleFromFileName(fileName) {
-        const withoutExtension = fileName.replace(/\.[^.]+$/, "");
-        const readable = withoutExtension.replace(/[_-]+/g, " ").trim();
-        return readable || withoutExtension || fileName;
-      }
-
-      function deriveTitleFromUrl(urlString) {
-        try {
-          const url = new URL(urlString, window.location.href);
-          const segments = url.pathname.split("/").filter(Boolean);
-          const lastSegment = segments.length ? segments[segments.length - 1] : "";
-          if (lastSegment) {
-            return makeTitleFromFileName(decodeURIComponent(lastSegment));
-          }
-          return url.host || urlString;
-        } catch (error) {
-          return urlString;
-        }
-      }
-
-      function isPlayableUrl(urlObject) {
-        if (!urlObject || !urlObject.pathname) {
-          return false;
-        }
-
-        let decodedPathname = urlObject.pathname;
-        try {
-          decodedPathname = decodeURIComponent(urlObject.pathname);
-        } catch (error) {
-          // ignore decoding issues and fall back to the raw pathname
-        }
-
-        const extension = getExtension(decodedPathname);
-        return Boolean(extension && isAudioExtension(extension));
-      }
-
-      function createTrackFromPointerLine(line, baseUrl, fallbackTitle, index) {
-        const cleaned = line.trim();
-        if (!cleaned || cleaned.startsWith("#")) {
-          return null;
-        }
-
-        let urlText = cleaned;
-        let explicitTitle = "";
-
-        if (cleaned.includes("|")) {
-          const parts = cleaned
-            .split("|")
-            .map((part) => part.trim())
-            .filter(Boolean);
-          if (parts.length >= 2) {
-            urlText = parts.pop();
-            explicitTitle = parts.join(" | ");
-          }
-        }
-
-        let resolvedUrl;
-        try {
-          resolvedUrl = new URL(urlText, baseUrl);
-        } catch (error) {
-          return null;
-        }
-
-        if (!isPlayableUrl(resolvedUrl)) {
-          return null;
-        }
-
-        const title =
-          explicitTitle ||
-          deriveTitleFromUrl(resolvedUrl.href) ||
-          `${fallbackTitle || "外部曲目"} ${index + 1}`;
-
-        return {
-          title,
-          src: resolvedUrl.href,
-        };
-      }
-
-      async function parsePointerFile(pointerSrc, fallbackTitle) {
-        try {
-          const response = await fetch(pointerSrc, { cache: "no-cache" });
-          if (!response.ok) {
-            return [];
-          }
-
-          const text = await response.text();
-          const lines = text.split(/\r?\n/);
-          const baseUrl = response.url;
-          const tracksFromPointer = [];
-
-          lines.forEach((line, index) => {
-            const track = createTrackFromPointerLine(line, baseUrl, fallbackTitle, index);
-            if (track) {
-              tracksFromPointer.push(track);
-            }
-          });
-
-          return tracksFromPointer;
-        } catch (error) {
-          console.warn("读取播放列表文件失败", pointerSrc, error);
-          return [];
-        }
-      }
-
-      async function expandEntries(entries) {
-        if (!Array.isArray(entries) || !entries.length) {
-          return [];
-        }
-
-        const expanded = [];
-        const seenSources = new Set();
-
-        const addTrack = (track) => {
-          if (!track || !track.src || seenSources.has(track.src)) {
-            return;
-          }
-          seenSources.add(track.src);
-          expanded.push({
-            title: track.title || deriveTitleFromUrl(track.src),
-            src: track.src,
-          });
-        };
-
-        for (const entry of entries) {
-          if (!entry || !entry.src) {
-            continue;
-          }
-
-          if (entry.type === "pointer") {
-            const pointerTracks = await parsePointerFile(entry.src, entry.title);
-            pointerTracks.forEach(addTrack);
-          } else {
-            addTrack(entry);
-          }
-        }
-
-        return expanded;
-      }
 
       function showPlaceholderOption(message) {
         trackSelect.innerHTML = "";
@@ -411,28 +252,6 @@
           resetProgress();
           setButtonState(false);
         }
-      }
-
-      function populateTrackOptions() {
-        trackSelect.innerHTML = "";
-
-        if (!tracks.length) {
-          showPlaceholderOption("暂未检测到音频文件");
-          setPlayerAvailability(false);
-          return;
-        }
-
-        tracks.forEach((track, index) => {
-          const option = document.createElement("option");
-          option.value = track.src;
-          option.textContent = track.title;
-          if (index === 0) {
-            option.selected = true;
-          }
-          trackSelect.appendChild(option);
-        });
-
-        setPlayerAvailability(true);
       }
 
       function formatTime(value) {
@@ -470,6 +289,7 @@
           return;
         }
         const wasPlaying = !audio.paused && !audio.ended;
+        trackSelect.value = source;
         audio.src = source;
         audio.load();
         resetProgress();
@@ -485,165 +305,148 @@
         }
       }
 
-      async function fetchFromLocalListing() {
+      function resolveAudioUrl(urlText) {
         try {
-          const response = await fetch("news/", { cache: "no-cache" });
-          if (!response.ok) {
-            return [];
+          return new URL(urlText, window.location.href).href;
+        } catch (error) {
+          return "";
+        }
+      }
+
+      function parseTimestamp(text) {
+        if (!text) {
+          return null;
+        }
+
+        const trimmed = text.trim();
+        let timestamp = Date.parse(trimmed);
+        if (!Number.isNaN(timestamp)) {
+          return timestamp;
+        }
+
+        const match = trimmed.match(
+          /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/
+        );
+        if (match) {
+          const [
+            ,
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second = "0",
+          ] = match;
+          const isoString = `${year.padStart(4, "0")}-${month.padStart(2, "0")}-${day.padStart(2, "0")}` +
+            `T${hour.padStart(2, "0")}:${minute.padStart(2, "0")}:${second.padStart(2, "0")}`;
+          timestamp = Date.parse(isoString);
+          if (!Number.isNaN(timestamp)) {
+            return timestamp;
           }
-          const contentType = response.headers.get("content-type") || "";
-          if (!contentType.includes("html")) {
+        }
+
+        return null;
+      }
+
+      async function loadTracksFromFile() {
+        try {
+          const response = await fetch("audio.txt", { cache: "no-cache" });
+          if (!response.ok) {
             return [];
           }
 
           const text = await response.text();
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(text, "text/html");
-          const anchors = Array.from(doc.querySelectorAll("a[href]"));
-          const seen = new Set();
-          const discovered = [];
+          const lines = text.split(/\n/);
+          const parsed = [];
 
-          anchors.forEach((anchor) => {
-            const rawHref = anchor.getAttribute("href") || "";
-            if (!rawHref || rawHref.endsWith("/")) {
-              return;
-            }
-            if (rawHref.startsWith("?") || rawHref.startsWith("#")) {
+          lines.forEach((line, index) => {
+            const trimmed = line.trim();
+            if (!trimmed) {
               return;
             }
 
-            let resolved;
-            try {
-              resolved = new URL(rawHref, response.url);
-            } catch (error) {
+            const parts = trimmed.split("|");
+            if (parts.length < 3) {
+              console.warn(`audio.txt 第 ${index + 1} 行格式不正确，已跳过`);
               return;
             }
 
-            if (resolved.pathname.endsWith("/")) {
+            const [titleRaw, urlRaw, ...timeParts] = parts;
+            const title = (titleRaw || "").trim();
+            const urlText = (urlRaw || "").trim();
+            const timeText = timeParts.join("|").trim();
+
+            if (!title || !urlText || !timeText) {
               return;
             }
 
-            const fileName = decodeURIComponent(
-              resolved.pathname.substring(resolved.pathname.lastIndexOf("/") + 1)
-            );
-            if (!fileName) {
+            const resolvedUrl = resolveAudioUrl(urlText);
+            if (!resolvedUrl) {
+              console.warn(`无法解析音频地址：${urlText}（第 ${index + 1} 行）`);
               return;
             }
 
-            const extension = getExtension(fileName);
-            if (!isAudioExtension(extension) && !isPointerExtension(extension)) {
-              return;
-            }
-
-            const newsIndex = resolved.pathname.lastIndexOf("/news/");
-            let relativeSrc;
-            if (newsIndex !== -1) {
-              relativeSrc = resolved.pathname.substring(newsIndex + 1);
-            } else {
-              const encodedName = encodeURIComponent(fileName);
-              relativeSrc = `news/${encodedName}`;
-            }
-            if (resolved.search) {
-              relativeSrc += resolved.search;
-            }
-
-            if (seen.has(relativeSrc)) {
-              return;
-            }
-            seen.add(relativeSrc);
-
-            const anchorText = anchor.textContent ? anchor.textContent.trim() : "";
-            const title = anchorText && !anchorText.startsWith("../")
-              ? anchorText
-              : makeTitleFromFileName(fileName);
-
-            discovered.push({
+            parsed.push({
               title,
-              src: relativeSrc,
-              type: isPointerExtension(extension) ? "pointer" : "audio",
+              src: resolvedUrl,
+              time: timeText,
+              timestamp: parseTimestamp(timeText),
             });
           });
 
-          return discovered;
+          parsed.sort((a, b) => {
+            const aTime = a.timestamp;
+            const bTime = b.timestamp;
+            if (aTime !== null && bTime !== null) {
+              return bTime - aTime;
+            }
+            if (aTime !== null) {
+              return -1;
+            }
+            if (bTime !== null) {
+              return 1;
+            }
+            return b.time.localeCompare(a.time, undefined, {
+              numeric: true,
+              sensitivity: "base",
+            });
+          });
+
+          return parsed;
         } catch (error) {
-          console.warn("扫描 news 目录时遇到问题", error);
+          console.warn("读取 audio.txt 时出现问题", error);
           return [];
         }
       }
 
-      async function fetchFromGithubContents() {
-        const { hostname, pathname } = window.location;
-        if (!hostname.endsWith("github.io")) {
-          return [];
+      function populateTrackOptions() {
+        trackSelect.innerHTML = "";
+
+        if (!tracks.length) {
+          showPlaceholderOption("未检测到可播放的内容，请检查 audio.txt");
+          setPlayerAvailability(false);
+          return;
         }
 
-        const owner = hostname.replace(/\.github\.io$/, "");
-        const segments = pathname.split("/").filter(Boolean);
-        const repo = segments[0] || `${owner}.github.io`;
-        const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/news`;
-
-        try {
-          const response = await fetch(apiUrl, {
-            headers: {
-              Accept: "application/vnd.github.v3+json",
-            },
-          });
-
-          if (!response.ok) {
-            return [];
+        tracks.forEach((track, index) => {
+          const option = document.createElement("option");
+          option.value = track.src;
+          option.textContent = `${track.title} ｜ ${track.time}`;
+          if (index === 0) {
+            option.selected = true;
           }
+          trackSelect.appendChild(option);
+        });
 
-          const payload = await response.json();
-          if (!Array.isArray(payload)) {
-            return [];
-          }
-
-          const discovered = [];
-          payload.forEach((entry) => {
-            if (!entry || entry.type !== "file" || typeof entry.name !== "string") {
-              return;
-            }
-
-            const extension = getExtension(entry.name);
-            if (!isAudioExtension(extension) && !isPointerExtension(extension)) {
-              return;
-            }
-
-            const encodedName = encodeURIComponent(entry.name);
-            const src = `news/${encodedName}`;
-
-            discovered.push({
-              title: makeTitleFromFileName(entry.name),
-              src,
-              type: isPointerExtension(extension) ? "pointer" : "audio",
-            });
-          });
-
-          return discovered;
-        } catch (error) {
-          console.warn("尝试通过 GitHub API 获取音频列表失败", error);
-          return [];
-        }
+        setPlayerAvailability(true);
       }
 
-      async function discoverTracks() {
-        if (manualTracks && manualTracks.length) {
-          return manualTracks;
-        }
-
-        const localEntries = await fetchFromLocalListing();
-        const localTracks = await expandEntries(localEntries);
-        if (localTracks.length) {
-          return localTracks;
-        }
-
-        const githubEntries = await fetchFromGithubContents();
-        const githubTracks = await expandEntries(githubEntries);
-        if (githubTracks.length) {
-          return githubTracks;
-        }
-
-        return [];
+      function seekByClient(clientX) {
+        const rect = progressWrapper.getBoundingClientRect();
+        const offsetX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+        const ratio = rect.width ? offsetX / rect.width : 0;
+        audio.currentTime = ratio * (audio.duration || 0);
+        updateProgress();
       }
 
       playButton.addEventListener("click", () => {
@@ -675,14 +478,6 @@
         setButtonState(false);
         updateProgress();
       });
-
-      function seekByClient(clientX) {
-        const rect = progressWrapper.getBoundingClientRect();
-        const offsetX = Math.max(0, Math.min(rect.width, clientX - rect.left));
-        const ratio = rect.width ? offsetX / rect.width : 0;
-        audio.currentTime = ratio * (audio.duration || 0);
-        updateProgress();
-      }
 
       progressWrapper.addEventListener("mousedown", (event) => {
         if (progressWrapper.getAttribute("aria-disabled") === "true") {
@@ -746,10 +541,10 @@
       });
 
       async function initPlayer() {
-        showPlaceholderOption("正在扫描 news 目录…");
+        showPlaceholderOption("正在读取播放列表…");
         setPlayerAvailability(false);
 
-        tracks = await discoverTracks();
+        tracks = await loadTracksFromFile();
         populateTrackOptions();
 
         if (tracks.length > 0) {
