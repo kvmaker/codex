@@ -260,6 +260,22 @@
         }
       }
 
+      function isPlayableUrl(urlObject) {
+        if (!urlObject || !urlObject.pathname) {
+          return false;
+        }
+
+        let decodedPathname = urlObject.pathname;
+        try {
+          decodedPathname = decodeURIComponent(urlObject.pathname);
+        } catch (error) {
+          // ignore decoding issues and fall back to the raw pathname
+        }
+
+        const extension = getExtension(decodedPathname);
+        return Boolean(extension && isAudioExtension(extension));
+      }
+
       function createTrackFromPointerLine(line, baseUrl, fallbackTitle, index) {
         const cleaned = line.trim();
         if (!cleaned || cleaned.startsWith("#")) {
@@ -282,19 +298,23 @@
 
         let resolvedUrl;
         try {
-          resolvedUrl = new URL(urlText, baseUrl).href;
+          resolvedUrl = new URL(urlText, baseUrl);
         } catch (error) {
+          return null;
+        }
+
+        if (!isPlayableUrl(resolvedUrl)) {
           return null;
         }
 
         const title =
           explicitTitle ||
-          deriveTitleFromUrl(resolvedUrl) ||
+          deriveTitleFromUrl(resolvedUrl.href) ||
           `${fallbackTitle || "外部曲目"} ${index + 1}`;
 
         return {
           title,
-          src: resolvedUrl,
+          src: resolvedUrl.href,
         };
       }
 
@@ -367,6 +387,7 @@
         option.selected = true;
         trackSelect.appendChild(option);
       }
+
       function resetProgress() {
         progressBar.style.width = "0%";
         progressWrapper.setAttribute("aria-valuenow", "0");
