@@ -55,32 +55,114 @@
         margin-bottom: 18px;
       }
 
-      label {
+      .track-picker {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .list-label {
+        margin: 0;
         font-size: 0.9rem;
         color: rgba(31, 41, 55, 0.85);
-        display: block;
-        margin-bottom: 6px;
       }
 
-      select {
-        width: 100%;
-        border-radius: 14px;
-        border: 1px solid rgba(99, 102, 241, 0.3);
-        padding: 12px 14px;
-        font-size: 1rem;
-        background-color: rgba(255, 255, 255, 0.95);
-        appearance: none;
-        outline: none;
-        overflow-y: auto;
+      .track-scroll {
+        position: relative;
       }
 
-      select[size] {
-        min-height: 180px;
+      .track-list {
+        --track-item-height: 52px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
         padding: 8px;
+        border: 1px solid rgba(99, 102, 241, 0.28);
+        border-radius: 14px;
+        background-color: rgba(255, 255, 255, 0.95);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+        max-height: calc((var(--track-item-height) * 5) + (6px * 4) + 16px);
+        overflow-y: auto;
+        scroll-behavior: smooth;
       }
 
-      select option {
-        padding: 6px 8px;
+      .track-list[data-disabled="true"] {
+        opacity: 0.6;
+      }
+
+      .track-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100%;
+        padding: 10px 12px;
+        min-height: var(--track-item-height);
+        border: none;
+        border-radius: 12px;
+        background: transparent;
+        font-size: 0.95rem;
+        text-align: left;
+        color: rgba(31, 41, 55, 0.92);
+        cursor: pointer;
+        transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+      }
+
+      .track-item:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      .track-item:not(:disabled):is(:hover, :focus-visible) {
+        background: rgba(99, 102, 241, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.25);
+      }
+
+      .track-item.is-selected {
+        background: linear-gradient(120deg, rgba(99, 102, 241, 0.92), rgba(236, 72, 153, 0.9));
+        color: #fff;
+        box-shadow: 0 10px 20px rgba(79, 70, 229, 0.24);
+      }
+
+      .track-title {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .track-time {
+        font-size: 0.8rem;
+        color: rgba(55, 65, 81, 0.65);
+        white-space: nowrap;
+      }
+
+      .track-item.is-selected .track-time {
+        color: rgba(255, 255, 255, 0.85);
+      }
+
+      .track-placeholder {
+        margin: 0;
+        padding: 28px 18px;
+        border: 1px dashed rgba(129, 140, 248, 0.55);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.8);
+        color: rgba(55, 65, 81, 0.72);
+        font-size: 0.9rem;
+        text-align: center;
+        min-height: calc((var(--track-item-height, 52px) * 5) + (6px * 4) + 16px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .track-placeholder[hidden] {
+        display: none;
+      }
+
+      .track-list[hidden] {
+        display: none;
       }
 
       .progress-wrapper {
@@ -171,9 +253,26 @@
       <p class="subtitle">把播放信息写在 <code>audio.txt</code> 中，页面会自动加载</p>
 
       <section class="track-info">
-        <div>
-          <label for="trackSelect">选择曲目</label>
-          <select id="trackSelect" aria-label="选择曲目" size="5"></select>
+        <div class="track-picker">
+          <p class="list-label" id="trackListLabel">选择曲目</p>
+          <div class="track-scroll">
+            <div
+              id="trackList"
+              class="track-list"
+              role="listbox"
+              aria-labelledby="trackListLabel"
+              aria-disabled="true"
+              hidden
+            ></div>
+            <p
+              id="trackPlaceholder"
+              class="track-placeholder"
+              role="status"
+              aria-live="polite"
+            >
+              正在读取播放列表…
+            </p>
+          </div>
         </div>
 
         <div class="progress" aria-label="播放进度">
@@ -215,18 +314,31 @@
       const progressBar = document.getElementById("progressBar");
       const currentTimeEl = document.getElementById("currentTime");
       const durationEl = document.getElementById("duration");
-      const trackSelect = document.getElementById("trackSelect");
+      const trackList = document.getElementById("trackList");
+      const trackPlaceholder = document.getElementById("trackPlaceholder");
 
       let tracks = [];
       let isScrubbing = false;
+      let selectedIndex = -1;
 
-      function showPlaceholderOption(message) {
-        trackSelect.innerHTML = "";
-        const option = document.createElement("option");
-        option.textContent = message;
-        option.disabled = true;
-        option.selected = true;
-        trackSelect.appendChild(option);
+      function showPlaceholder(message) {
+        trackPlaceholder.textContent = message;
+        trackPlaceholder.hidden = false;
+        trackList.hidden = true;
+        trackList.setAttribute("data-disabled", "true");
+        trackList.setAttribute("aria-disabled", "true");
+      }
+
+      function hidePlaceholder() {
+        trackPlaceholder.hidden = true;
+        trackList.hidden = false;
+      }
+
+      function clearTrackList() {
+        trackList.innerHTML = "";
+        trackList.removeAttribute("aria-activedescendant");
+        selectedIndex = -1;
+        trackList.scrollTop = 0;
       }
 
       function resetProgress() {
@@ -238,9 +350,17 @@
 
       function setPlayerAvailability(isEnabled) {
         playButton.disabled = !isEnabled;
-        trackSelect.disabled = !isEnabled;
         progressWrapper.setAttribute("aria-disabled", String(!isEnabled));
         progressWrapper.tabIndex = isEnabled ? 0 : -1;
+        trackList.setAttribute("data-disabled", String(!isEnabled));
+        trackList.setAttribute("aria-disabled", String(!isEnabled));
+
+        const items = trackList.querySelectorAll(".track-item");
+        items.forEach((item) => {
+          item.disabled = !isEnabled;
+          const itemIndex = Number(item.dataset.index);
+          item.tabIndex = isEnabled && itemIndex === selectedIndex ? 0 : -1;
+        });
 
         if (!isEnabled) {
           isScrubbing = false;
@@ -284,16 +404,18 @@
         }
       }
 
-      function loadTrack(source) {
-        if (!source) {
+      function loadTrackByIndex(index, { keepPlaying = true } = {}) {
+        const track = tracks[index];
+        if (!track) {
           return;
         }
-        const wasPlaying = !audio.paused && !audio.ended;
-        trackSelect.value = source;
-        audio.src = source;
+
+        const shouldResume = keepPlaying && !audio.paused && !audio.ended;
+        audio.src = track.src;
         audio.load();
         resetProgress();
-        if (wasPlaying) {
+
+        if (shouldResume) {
           audio
             .play()
             .then(() => setButtonState(true))
@@ -337,7 +459,8 @@
             minute,
             second = "0",
           ] = match;
-          const isoString = `${year.padStart(4, "0")}-${month.padStart(2, "0")}-${day.padStart(2, "0")}` +
+          const isoString =
+            `${year.padStart(4, "0")}-${month.padStart(2, "0")}-${day.padStart(2, "0")}` +
             `T${hour.padStart(2, "0")}:${minute.padStart(2, "0")}:${second.padStart(2, "0")}`;
           timestamp = Date.parse(isoString);
           if (!Number.isNaN(timestamp)) {
@@ -356,7 +479,8 @@
           }
 
           const text = await response.text();
-          const lines = text.split(/\n/);
+          const lines = text.split(/
+/);
           const parsed = [];
 
           lines.forEach((line, index) => {
@@ -419,26 +543,91 @@
         }
       }
 
-      function populateTrackOptions() {
-        trackSelect.innerHTML = "";
+      function updateTrackSelection(index, { focus = true, keepPlaying = true } = {}) {
+        if (!tracks.length || index < 0 || index >= tracks.length) {
+          return;
+        }
+
+        if (index === selectedIndex) {
+          if (focus) {
+            const currentItem = trackList.querySelector(
+              `.track-item[data-index="${index}"]`
+            );
+            if (currentItem) {
+              currentItem.focus();
+              currentItem.scrollIntoView({ block: "nearest" });
+            }
+          }
+          return;
+        }
+
+        const previousItem = trackList.querySelector(".track-item.is-selected");
+        if (previousItem) {
+          previousItem.classList.remove("is-selected");
+          previousItem.setAttribute("aria-selected", "false");
+          previousItem.tabIndex = -1;
+        }
+
+        const nextItem = trackList.querySelector(
+          `.track-item[data-index="${index}"]`
+        );
+        if (!nextItem) {
+          return;
+        }
+
+        nextItem.classList.add("is-selected");
+        nextItem.setAttribute("aria-selected", "true");
+        const isDisabled = trackList.getAttribute("data-disabled") === "true";
+        nextItem.tabIndex = isDisabled ? -1 : 0;
+
+        if (focus) {
+          nextItem.focus();
+          nextItem.scrollIntoView({ block: "nearest" });
+        } else if (trackList.scrollHeight > trackList.clientHeight) {
+          nextItem.scrollIntoView({ block: "nearest" });
+        }
+
+        trackList.setAttribute("aria-activedescendant", nextItem.id);
+        selectedIndex = index;
+        loadTrackByIndex(index, { keepPlaying });
+      }
+
+      function populateTrackList() {
+        clearTrackList();
 
         if (!tracks.length) {
-          showPlaceholderOption("未检测到可播放的内容，请检查 audio.txt");
+          showPlaceholder("未检测到可播放的内容，请检查 audio.txt");
           setPlayerAvailability(false);
           return;
         }
 
+        hidePlaceholder();
+
         tracks.forEach((track, index) => {
-          const option = document.createElement("option");
-          option.value = track.src;
-          option.textContent = `${track.title} ｜ ${track.time}`;
-          if (index === 0) {
-            option.selected = true;
-          }
-          trackSelect.appendChild(option);
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "track-item";
+          item.id = `track-item-${index}`;
+          item.dataset.index = String(index);
+          item.setAttribute("role", "option");
+          item.setAttribute("aria-selected", "false");
+          item.tabIndex = -1;
+
+          const titleSpan = document.createElement("span");
+          titleSpan.className = "track-title";
+          titleSpan.textContent = track.title;
+
+          const timeSpan = document.createElement("span");
+          timeSpan.className = "track-time";
+          timeSpan.textContent = track.time;
+
+          item.append(titleSpan, timeSpan);
+          trackList.appendChild(item);
         });
 
         setPlayerAvailability(true);
+        updateTrackSelection(0, { focus: false, keepPlaying: false });
+        trackList.scrollTop = 0;
       }
 
       function seekByClient(clientX) {
@@ -463,10 +652,52 @@
         }
       });
 
-      trackSelect.addEventListener("change", (event) => {
-        const { value } = event.target;
-        if (value) {
-          loadTrack(value);
+      trackList.addEventListener("click", (event) => {
+        if (trackList.getAttribute("data-disabled") === "true") {
+          return;
+        }
+        const item = event.target.closest(".track-item");
+        if (!item || item.disabled) {
+          return;
+        }
+        const index = Number(item.dataset.index);
+        if (Number.isNaN(index)) {
+          return;
+        }
+        updateTrackSelection(index, { focus: true, keepPlaying: true });
+      });
+
+      trackList.addEventListener("keydown", (event) => {
+        if (trackList.getAttribute("data-disabled") === "true") {
+          return;
+        }
+        if (!tracks.length) {
+          return;
+        }
+        const key = event.key;
+        if (key === "ArrowDown" || key === "ArrowRight") {
+          const nextIndex = Math.min(tracks.length - 1, selectedIndex + 1);
+          if (nextIndex !== selectedIndex) {
+            event.preventDefault();
+            updateTrackSelection(nextIndex, { focus: true, keepPlaying: true });
+          }
+        } else if (key === "ArrowUp" || key === "ArrowLeft") {
+          const prevIndex = Math.max(0, selectedIndex - 1);
+          if (prevIndex !== selectedIndex) {
+            event.preventDefault();
+            updateTrackSelection(prevIndex, { focus: true, keepPlaying: true });
+          }
+        } else if (key === "Home") {
+          if (selectedIndex !== 0) {
+            event.preventDefault();
+            updateTrackSelection(0, { focus: true, keepPlaying: true });
+          }
+        } else if (key === "End") {
+          const lastIndex = tracks.length - 1;
+          if (selectedIndex !== lastIndex) {
+            event.preventDefault();
+            updateTrackSelection(lastIndex, { focus: true, keepPlaying: true });
+          }
         }
       });
 
@@ -541,15 +772,13 @@
       });
 
       async function initPlayer() {
-        showPlaceholderOption("正在读取播放列表…");
+
+        clearTrackList();
+        showPlaceholder("正在读取播放列表…");
         setPlayerAvailability(false);
 
         tracks = await loadTracksFromFile();
-        populateTrackOptions();
-
-        if (tracks.length > 0) {
-          loadTrack(tracks[0].src);
-        }
+        populateTrackList();
       }
 
       initPlayer();
