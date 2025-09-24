@@ -1,0 +1,20 @@
+{
+  "path": "/Users/maxyu/src/kvmaker/codex",
+  "desc": "这是一个精美的音乐播放器项目，具有现代化渐变UI设计、响应式布局、音频播放控制、播放列表管理等功能",
+  "id": "ccb38f921eb5415595f65174a73a20c6",
+  "data": {
+    "spaceKey": "ccb38f921eb5415595f65174a73a20c6",
+    "connections": {
+      "webIDE": "https://ccb38f921eb5415595f65174a73a20c6.codebuddy.cloudstudio.club",
+      "preview": "https://ccb38f921eb5415595f65174a73a20c6--{port}.codebuddy.cloudstudio.club",
+      "api": "https://ccb38f921eb5415595f65174a73a20c6--api.codebuddy.cloudstudio.club",
+      "pty": "https://ccb38f921eb5415595f65174a73a20c6--pty.codebuddy.cloudstudio.club"
+    }
+  },
+  "config": {
+    "api": "https://ccb38f921eb5415595f65174a73a20c6--api.codebuddy.cloudstudio.club",
+    "pty": "https://ccb38f921eb5415595f65174a73a20c6--pty.codebuddy.cloudstudio.club",
+    "region": "ap-shanghai",
+    "spaceKey": "ccb38f921eb5415595f65174a73a20c6"
+  }
+}
